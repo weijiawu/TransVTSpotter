@@ -18,7 +18,7 @@ Link to our [MOVText: A Large-Scale, Multilingual Open World Dataset for Video T
 ## [ICDAR2015(video) Tracking challenge](https://rrc.cvc.uab.es/?ch=3&com=evaluation&task=1)
 
 Methods | MOTA | MOTP | IDF1 | Mostly Matched |	Partially Matched |	Mostly Lost
-:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:
+:---:|:---:|:---:|:---:|:---:|:---:|:---:
 TransVTSpotter | 45.75	|73.58	|57.56	|658	|611	|647
 
 Models are also available in [Baidu Drive](https://pan.baidu.com/s/1dcHuHUZ9y2s7LEmvtVHZZw) by code m4iv.
@@ -29,7 +29,7 @@ Models are also available in [Baidu Drive](https://pan.baidu.com/s/1dcHuHUZ9y2s7
 
 
 ## Demo
-<img src="assets/MOT17-11.gif" width="400"/>  <img src="assets/MOT17-04.gif" width="400"/>
+<img src="assets/demo.gif" width="400"/>  <img src="assets/demo1.gif" width="400"/>
 
 
 ## Installation
