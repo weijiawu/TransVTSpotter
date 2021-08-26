@@ -19,7 +19,7 @@ Link to our [MOVText: A Large-Scale, Multilingual Open World Dataset for Video T
 
 Methods | MOTA | MOTP | IDF1 | Mostly Matched |	Partially Matched |	Mostly Lost
 :---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:
-TransVTSpotter | 45.75%	|73.58%	|57.56%	|658	|611	|647
+TransVTSpotter | 45.75	|73.58	|57.56	|658	|611	|647
 
 Models are also available in [Baidu Drive](https://pan.baidu.com/s/1dcHuHUZ9y2s7LEmvtVHZZw) by code m4iv.
 
