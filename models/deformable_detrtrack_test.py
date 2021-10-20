@@ -14,12 +14,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 import math
-import ipdb
+
 from util import box_ops
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
                        accuracy, get_world_size, interpolate,
                        is_dist_avail_and_initialized, inverse_sigmoid)
-import math
+
 from .backbone import build_backbone
 from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
@@ -54,9 +54,8 @@ class DeformableDETR(nn.Module):
         hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
-        self.rotate_embed = nn.Linear(hidden_dim, 1)
-        
         self.num_feature_levels = num_feature_levels
+        self.rotate_embed = nn.Linear(hidden_dim, 1)
         if not two_stage:
             self.query_embed = nn.Embedding(num_queries, hidden_dim*2)
         if num_feature_levels > 1:
@@ -87,13 +86,10 @@ class DeformableDETR(nn.Module):
         prior_prob = 0.01
         bias_value = -math.log((1 - prior_prob) / prior_prob)
         self.class_embed.bias.data = torch.ones(num_classes) * bias_value
-        
         self.rotate_embed.bias.data = torch.ones(1) * bias_value
         
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
-        
-        
         for proj in self.input_proj:
             nn.init.xavier_uniform_(proj[0].weight, gain=1)
             nn.init.constant_(proj[0].bias, 0)
@@ -105,177 +101,26 @@ class DeformableDETR(nn.Module):
             self.class_embed = _get_clones(self.class_embed, num_pred)
             self.bbox_embed = _get_clones(self.bbox_embed, num_pred)
             nn.init.constant_(self.bbox_embed[0].layers[-1].bias.data[2:], -2.0)
-            
-#             nn.init.constant_(self.rotate_embed[0].layers[-1].bias.data[2:], -2.0)
-            
             # hack implementation for iterative bounding box refinement
             self.transformer.decoder.bbox_embed = self.bbox_embed
         else:
+            
             nn.init.constant_(self.bbox_embed.layers[-1].bias.data[2:], -2.0)
-#             self.rotate_embed = nn.ModuleList([self.rotate_embed for _ in range(num_pred)])
             self.rotate_embed = nn.ModuleList([self.rotate_embed for _ in range(num_pred)])
-    
             self.class_embed = nn.ModuleList([self.class_embed for _ in range(num_pred)])
             self.bbox_embed = nn.ModuleList([self.bbox_embed for _ in range(num_pred)])
-        
-        
             self.transformer.decoder.bbox_embed = None
         if two_stage:
             # hack implementation for two-stage
             self.transformer.decoder.class_embed = self.class_embed
             for box_embed in self.bbox_embed:
                 nn.init.constant_(box_embed.layers[-1].bias.data[2:], 0.0)
-    
-    @torch.no_grad()
-    def randshift(self, samples, targets):
-        bs = samples.tensors.shape[0]
-        
-        self.xshift = (100 * torch.rand(bs)).int()
-        self.xshift *= (torch.randn(bs) > 0.0).int() * 2 - 1 
-        self.yshift = (100 * torch.rand(bs)).int()
-        self.yshift *= (torch.randn(bs) > 0.0).int() * 2 - 1
-        
-        shifted_images = []
-        new_targets = copy.deepcopy(targets)
-        
-        for i, (image, target) in enumerate(zip(samples.tensors, targets)):
-            _, h, w = image.shape
-            img_h, img_w = target['size']
-            nopad_image = image[:, :img_h, :img_w]
-            image_patch = \
-            nopad_image[:,
-                  max(0, -self.yshift[i]) : min(h, h - self.yshift[i]), 
-                  max(0, -self.xshift[i]) : min(w, w - self.xshift[i])] 
-            
-            _, patch_h, patch_w = image_patch.shape
-            ratio_h, ratio_w = img_h / patch_h,  img_w / patch_w 
-            shifted_image = F.interpolate(image_patch[None], size=(img_h, img_w))[0]
-            pad_shifted_image = copy.deepcopy(image)
-            pad_shifted_image[:, :img_h, :img_w] = shifted_image
-            shifted_images.append(pad_shifted_image)
-            
-            scale = torch.tensor([img_w, img_h, img_w, img_h], device=image.device)[None]
-            bboxes = target['boxes'] * scale
-            bboxes -= torch.tensor([max(0, -self.xshift[i]), max(0, -self.yshift[i]), 0, 0], device=image.device)[None]
-            bboxes *= torch.tensor([ratio_w, ratio_h, ratio_w, ratio_h], device=image.device)[None]
-            shifted_bboxes = bboxes / scale
-            new_targets[i]['boxes'] = shifted_bboxes
-                        
-        new_samples = copy.deepcopy(samples)
-        new_samples.tensors = torch.stack(shifted_images, dim=0)
-        
-        return new_samples, new_targets
-            
-    def forward(self, samples_targets, unused_embed=None):
-        if self.training:
-            samples, targets = samples_targets        
-            pre_samples, pre_targets = self.randshift(samples, targets)
-            prepre_samples, _ = self.randshift(samples, targets)
 
-            pre_out, pre_embed = self.forward_once(pre_samples, prepre_samples, pre_targets, targets)             
-            
-            if torch.randn(1).item() > 0.0:
-                out, _ = self.forward_train(samples, pre_embed)     
-            else:
-                for key in pre_embed:
-                    if key != 'feat':
-                        pre_embed[key] = None
-                out, _ = self.forward_train(samples, pre_embed)
-                pre_out = None
-                pre_targets = None
-            return out, pre_out, pre_targets
-        
-        else:
-            samples = samples_targets
-            out, _ = self.forward_train(samples)         
-            return out, None
-    
-    @torch.no_grad()    
-    def forward_once(self, samples: NestedTensor, train_samples: NestedTensor, targets=None, next_targets=None):
-        if not isinstance(samples, NestedTensor):
-            samples = nested_tensor_from_tensor_list(samples)
-        # features ,  pos: Positional Encoding
-        features, pos = self.backbone(samples)
-
-        if not isinstance(train_samples, NestedTensor):
-            train_samples = nested_tensor_from_tensor_list(train_samples)
-        pre_feat, _ = self.backbone(train_samples)
-        
-        srcs = []
-        masks = []
-        
-        for l, (feat, feat2) in enumerate(zip(features, pre_feat)):
-
-            src, mask = feat.decompose()
-            src2, _ = feat2.decompose()
-            srcs.append(self.combine(torch.cat([self.input_proj[l](src), self.input_proj[l](src2)], dim=1)))
-            masks.append(mask)
-            assert mask is not None
-
-        if self.num_feature_levels > len(srcs):
-            _len_srcs = len(srcs)
-            for l in range(_len_srcs, self.num_feature_levels):
-                if l == _len_srcs:
-                    src = self.combine(torch.cat([self.input_proj[l](features[-1].tensors), self.input_proj[l](pre_feat[-1].tensors)], dim=1))
-                else:
-                    src = self.input_proj[l](srcs[-1])
-
-                m = samples.mask
-                mask = F.interpolate(m[None].float(), size=src.shape[-2:]).to(torch.bool)[0]
-                pos_l = self.backbone[1](NestedTensor(src, mask)).to(src.dtype)
-                srcs.append(src)
-                masks.append(mask)
-                pos.append(pos_l)
-            
-        query_embeds = None
-        if not self.two_stage:
-            query_embeds = self.query_embed.weight
-        # srcs： feature
-        # masks:
-        # pos: Positional Encoding
-        # query_embeds: 500
-        hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact, memory = self.transformer(srcs, masks, pos, query_embeds)
-        
-        outputs_rotates = []
-        outputs_classes = []
-        outputs_coords = []
-        for lvl in range(hs.shape[0]):
-            if lvl == 0:
-                reference = init_reference
-            else:
-                reference = inter_references[lvl - 1]
-            reference = inverse_sigmoid(reference)
-            outputs_class = self.class_embed[lvl](hs[lvl])
-            outputs_rotate = self.rotate_embed[lvl](hs[lvl])
-            tmp = self.bbox_embed[lvl](hs[lvl])
-            if reference.shape[-1] == 4:
-                tmp += reference
-            else:
-                assert reference.shape[-1] == 2
-                tmp[..., :2] += reference
-            outputs_coord = tmp.sigmoid()
-            outputs_classes.append(outputs_class)
-            outputs_rotates.append(outputs_rotate)
-            outputs_coords.append(outputs_coord)
-        outputs_rotate = torch.stack(outputs_rotates)
-        outputs_class = torch.stack(outputs_classes)
-        outputs_coord = torch.stack(outputs_coords)
-               
-        out = {'pred_logits': outputs_class[-1], 'pred_rotate': outputs_rotate[-1], 'pred_boxes': outputs_coord[-1]}
-        pre_embed = {'reference': outputs_coord[-1], 'tgt': hs[-1], 'feat': features, 'memory': memory}
-        
-        if self.aux_loss:
-            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord,outputs_rotate)        
-        
-        if self.two_stage:
-            enc_outputs_coord = enc_outputs_coord_unact.sigmoid()
-            out['enc_outputs'] = {'pred_logits': enc_outputs_class, 'pred_boxes': enc_outputs_coord}
-        return out, pre_embed
-    
-    def forward_train(self, samples: NestedTensor, pre_embed=None):
-        """ The forward expects a NestedTensor, which consists of:
+    def forward(self, samples: NestedTensor, pre_embed=None):
+        """ The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
+
             It returns a dict with the following elements:
                - "pred_logits": the classification logits (including no-object) for all queries.
                                 Shape= [batch_size x num_queries x (num_classes + 1)]
@@ -286,16 +131,15 @@ class DeformableDETR(nn.Module):
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
+        assert not self.training, 'here is inference mode'
+        assert samples.tensors.shape[0] == 1, 'track only supports batch 1'
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples)
         features, pos = self.backbone(samples)
         
         if pre_embed is not None:
-            pre_reference, pre_tgt, pre_feat, pre_memory = pre_embed['reference'], pre_embed['tgt'], pre_embed['feat'], pre_embed['memory']
+            pre_feat = pre_embed['feat']
         else:
-            pre_reference = None
-            pre_tgt = None
-            pre_memory = None
             pre_feat = features
         
         srcs = []
@@ -307,7 +151,7 @@ class DeformableDETR(nn.Module):
             srcs.append(self.combine(torch.cat([self.input_proj[l](src), self.input_proj[l](src2)], dim=1)))
             masks.append(mask)
             assert mask is not None
-
+        
         if self.num_feature_levels > len(srcs):
             _len_srcs = len(srcs)
             for l in range(_len_srcs, self.num_feature_levels):
@@ -322,13 +166,15 @@ class DeformableDETR(nn.Module):
                 srcs.append(src)
                 masks.append(mask)
                 pos.append(pos_l)
-            
+        
+        # detection mode         
         query_embeds = None
         if not self.two_stage:
-            query_embeds = self.query_embed.weight        
-        hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact, _ = self.transformer(srcs, masks, pos, query_embeds, pre_reference, pre_tgt)           
-        
+            query_embeds = self.query_embed.weight
+        hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact, memory = self.transformer(srcs, masks, pos, query_embeds)
+        cur_hs = hs
         outputs_rotates = []
+        
         outputs_classes = []
         outputs_coords = []
         for lvl in range(hs.shape[0]):
@@ -353,23 +199,69 @@ class DeformableDETR(nn.Module):
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
         
-        out = {'pred_logits': outputs_class[-1], 'pred_rotate': outputs_rotate[-1], 'pred_boxes': outputs_coord[-1]}
-        
-        if self.aux_loss:
-            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord,outputs_rotate)
+        cur_rotate = outputs_rotate[-1]
+        cur_class = outputs_class[-1]
+        cur_box = outputs_coord[-1]
+        cur_reference = cur_box
+        cur_tgt = cur_hs[-1]
+            
+        if pre_embed is not None:
+            # track mode
+            pre_reference, pre_tgt = pre_embed['reference'], pre_embed['tgt']
+                    
+            hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact, _ = self.transformer(srcs, masks, pos, query_embeds, pre_reference, pre_tgt, memory)
+            
+            outputs_rotates = []
+            outputs_classes = []
+            outputs_coords = []
+            for lvl in range(hs.shape[0]):
+                if lvl == 0:
+                    reference = init_reference
+                else:
+                    reference = inter_references[lvl - 1]
+                reference = inverse_sigmoid(reference)
+                outputs_rotate = self.rotate_embed[lvl](hs[lvl])
+                outputs_class = self.class_embed[lvl](hs[lvl])
+                tmp = self.bbox_embed[lvl](hs[lvl])
+                if reference.shape[-1] == 4:
+                    tmp += reference
+                else:
+                    assert reference.shape[-1] == 2
+                    tmp[..., :2] += reference
+                outputs_coord = tmp.sigmoid()
+                outputs_classes.append(outputs_class)
+                outputs_rotates.append(outputs_rotate)
+                outputs_coords.append(outputs_coord)
+            outputs_rotate = torch.stack(outputs_rotates)
+            outputs_class = torch.stack(outputs_classes)
+            outputs_coord = torch.stack(outputs_coords)
 
-        if self.two_stage and self.training:
+            pre_class, pre_box, pre_rotate = outputs_class[-1], outputs_coord[-1], outputs_rotate[-1]
+            
+        else:
+            pre_class, pre_box, pre_rotate = cur_class, cur_box, cur_rotate
+    
+        
+        out = {'pred_logits': cur_class, 'pred_boxes': cur_box,'pred_rotate': cur_rotate,
+               'tracking_logits': pre_class, 'tracking_boxes': pre_box, 'tracking_rotate': pre_rotate}
+        
+        pre_embed = {'reference': cur_reference, 'tgt': cur_tgt, 'feat': features}
+         
+        if self.aux_loss:
+            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+
+        if self.two_stage:
             enc_outputs_coord = enc_outputs_coord_unact.sigmoid()
             out['enc_outputs'] = {'pred_logits': enc_outputs_class, 'pred_boxes': enc_outputs_coord}
-        return out, None
+        return out, pre_embed
 
     @torch.jit.unused
-    def _set_aux_loss(self, outputs_class, outputs_coord,outputs_rotate):
+    def _set_aux_loss(self, outputs_class, outputs_coord):
         # this is a workaround to make torchscript happy, as torchscript
         # doesn't support dictionary with non-homogeneous values, such
         # as a dict having both a Tensor and a list.
-        return [{'pred_logits': a, 'pred_boxes': b,'pred_rotate':c}
-                for a, b,c in zip(outputs_class[:-1], outputs_coord[:-1],outputs_rotate[:-1])]
+        return [{'pred_logits': a, 'pred_boxes': b}
+                for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
 
 
 class SetCriterion(nn.Module):
@@ -400,17 +292,13 @@ class SetCriterion(nn.Module):
         """
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
-        
+
         idx = self._get_src_permutation_idx(indices)
-        
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.full(src_logits.shape[:2], self.num_classes,
                                     dtype=torch.int64, device=src_logits.device)
         target_classes[idx] = target_classes_o
-        
-#         print(src_logits[idx])
-#         print(target_classes_o)
-        
+
         target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
                                             dtype=src_logits.dtype, layout=src_logits.layout, device=src_logits.device)
         target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
@@ -499,55 +387,26 @@ class SetCriterion(nn.Module):
         batch_idx = torch.cat([torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)])
         tgt_idx = torch.cat([tgt for (_, tgt) in indices])
         return batch_idx, tgt_idx
-    
-    def loss_rotate(self, outputs, targets, indices, num_boxes, log=True):
-        """Classification loss (NLL)
-        targets dicts must contain the key "pred_rotate" containing a tensor of dim [nb_target_boxes]
-        """
-        assert 'pred_rotate' in outputs
-        
 
-        idx = self._get_src_permutation_idx(indices)
-        pred_rotate = outputs['pred_rotate']
-
-        target_rotate_o = torch.cat([t["rotate"][J] for t, (_, J) in zip(targets, indices)])
-#         target_rotate_o = target_rotate_o + math.pi * 0.5
-        target_rotate = torch.full(pred_rotate.shape[:2], 0.0,
-                                    dtype=torch.float, device=pred_rotate.device)
-        target_rotate[idx] = target_rotate_o
-        ignored = torch.full(pred_rotate.shape[:2], 0.0,
-                                    dtype=torch.float, device=pred_rotate.device)
-        ignored[idx] = 1.0
-        
-        pred_rotate = (pred_rotate.sigmoid() - 0.5) * math.pi
-    
-        angle_loss = 1 - torch.cos(pred_rotate*ignored.unsqueeze(-1) - target_rotate.unsqueeze(-1))
-        sum_ = torch.clamp(ignored.sum(),1,10000)
-
-        losses = {'loss_angle': angle_loss.sum()/(sum_*num_boxes)}
-
-        return losses
-    
     def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
         loss_map = {
             'labels': self.loss_labels,
             'cardinality': self.loss_cardinality,
             'boxes': self.loss_boxes,
-            'masks': self.loss_masks,
-            'rotate': self.loss_rotate
+            'masks': self.loss_masks
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
-    def forward(self, outputs, targets, pre_outputs=None, pre_targets=None):
+    def forward(self, outputs, targets):
         """ This performs the loss computation.
         Parameters:
              outputs: dict of tensors, see the output specification of the model for the format
              targets: list of dicts, such that len(targets) == batch_size.
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
-        
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs' and k != 'enc_outputs'}
+
         # Retrieve the matching between the outputs of the last layer and the targets
         indices = self.matcher(outputs_without_aux, targets)
 
@@ -567,12 +426,7 @@ class SetCriterion(nn.Module):
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if 'aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
-#                 if pre_outputs is not None:
-#                     indices = pre_indices
-#                 else:
-#                     indices = self.matcher(aux_outputs, targets)
                 indices = self.matcher(aux_outputs, targets)
-
                 for loss in self.losses:
                     if loss == 'masks':
                         # Intermediate masks losses are too costly to compute, we ignore them.
@@ -618,30 +472,40 @@ class PostProcess(nn.Module):
                           For evaluation, this must be the original image size (before any data augmentation)
                           For visualization, this should be the image size after data augment, but before padding
         """
-        out_logits, out_bbox = outputs['pred_logits'], outputs['pred_boxes']
-
+        out_logits, out_bbox, out_rotate = outputs['pred_logits'], outputs['pred_boxes'], outputs['pred_rotate']
+        track_logits, track_bbox, track_rotate = outputs['tracking_logits'], outputs['tracking_boxes'], outputs['tracking_rotate']
+        
         assert len(out_logits) == len(target_sizes)
         assert target_sizes.shape[1] == 2
 
         prob = out_logits.sigmoid()
-        
-#         topk_values, topk_indexes = torch.topk(prob.view(out_logits.shape[0], -1), 100, dim=1)
-#         scores = topk_values
-#         topk_boxes = topk_indexes // out_logits.shape[2]
-#         labels = topk_indexes % out_logits.shape[2]
-#         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
-#         boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).repeat(1,1,4))
+        track_prob = track_logits.sigmoid()
+        out_rotate = (out_rotate.sigmoid() - 0.5) * math.pi
+#         print(out_rotate)
+#         print(prob.shape)
+#         print(prob[..., 1:2].shape)
         
         scores, labels = prob[..., 1:2].max(-1)
+        
+#         print(scores.shape)
+#         print(labels.shape)
+#         assert False
+        
         labels = labels + 1
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
 
+        track_scores, track_labels = track_prob[..., 1:2].max(-1)
+        track_labels = track_labels + 1
+        track_boxes = box_ops.box_cxcywh_to_xyxy(track_bbox)
+        
         # and from relative [0, 1] to absolute [0, height] coordinates
         img_h, img_w = target_sizes.unbind(1)
         scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
         boxes = boxes * scale_fct[:, None, :]
+        track_boxes = track_boxes * scale_fct[:, None, :]
 
-        results = [{'scores': s, 'labels': l, 'boxes': b} for s, l, b in zip(scores, labels, boxes)]
+        results = [{'scores': s, 'labels': l, 'boxes': b,'rotate': r, 'track_scores': ts, 'track_labels': tl, 'track_boxes': tb} 
+                   for s, l, b, r, ts, tl, tb in zip(scores, labels, boxes, out_rotate, track_scores, track_labels, track_boxes)]
 
         return results
 
@@ -671,13 +535,12 @@ def build(args):
     elif args.dataset_file == "coco_panoptic":
         num_classes = 250
     else:
-        num_classes = 20
+        num_classes = 20 
     device = torch.device(args.device)
 
     backbone = build_backbone(args)
 
     transformer = build_deforamble_transformer(args)
-#     print(args.aux_loss)
     model = DeformableDETR(
         backbone,
         transformer,
@@ -691,7 +554,7 @@ def build(args):
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
     matcher = build_matcher(args)
-    weight_dict = {'loss_ce': args.cls_loss_coef, 'loss_bbox': args.bbox_loss_coef, 'loss_angle': 50.}
+    weight_dict = {'loss_ce': args.cls_loss_coef, 'loss_bbox': args.bbox_loss_coef ,'loss_angle': 100}
     weight_dict['loss_giou'] = args.giou_loss_coef
     if args.masks:
         weight_dict["loss_mask"] = args.mask_loss_coef
@@ -704,7 +567,7 @@ def build(args):
         aux_weight_dict.update({k + f'_enc': v for k, v in weight_dict.items()})
         weight_dict.update(aux_weight_dict)
 
-    losses = ['labels', 'boxes', 'cardinality','rotate']
+    losses = ['labels', 'boxes', 'cardinality']
     if args.masks:
         losses += ["masks"]
     # num_classes, matcher, weight_dict, losses, focal_alpha=0.25
@@ -718,4 +581,3 @@ def build(args):
             postprocessors["panoptic"] = PostProcessPanoptic(is_thing_map, threshold=0.85)
 
     return model, criterion, postprocessors
-
