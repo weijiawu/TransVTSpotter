@@ -15,6 +15,8 @@ Link to our [MOVText: A Large-Scale, Multilingual Open World Dataset for Video T
 ## Updates
 - (08/04/2021) Refactoring the code.  
 
+- (10/20/2021) The complete code has been released . 
+
 ## [ICDAR2015(video) Tracking challenge](https://rrc.cvc.uab.es/?ch=3&com=evaluation&task=1)
 
 Methods | MOTA | MOTP | IDF1 | Mostly Matched |	Partially Matched |	Mostly Lost
@@ -26,6 +28,7 @@ Models are also available in [Baidu Drive](https://pan.baidu.com/s/1dcHuHUZ9y2s7
 #### Notes
 - The training time is on 8 NVIDIA V100 GPUs with batchsize 16.
 - We use the models pre-trained on COCOTextV2.
+- We do not release the recognition code due to the company's regulations.
 
 
 ## Demo
