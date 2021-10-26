@@ -81,6 +81,7 @@ python3 -m torch.distributed.launch --nproc_per_node=8 --use_env main_track.py  
 python3 track_tools/Pretrain_model_to_mot.py
 ```
 The pre-trained model is available [COCOTextV2_pretrain.pth](https://pan.baidu.com/s/1E_srg-Qm8yMgmh6AVlw0Tg)， password:59w8.
+And the MOTA 44% can be found [here](https://pan.baidu.com/s/1u3u_P775ReuafRZ4V2amDg) password:xnlw.
 
 4. Train TransVTSpotter
 ```
