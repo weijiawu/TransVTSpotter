@@ -7,7 +7,7 @@
 
 
 ## Introduction
-[A Multilingual, Open World Video Text Dataset and End-to-end Video Text Spotter with Transformer]
+[A Multilingual, Open World Video Text Dataset and End-to-end Video Text Spotter with Transformer](https://arxiv.org/pdf/2112.04888.pdf)
 
 Link to our [MOVText: A Large-Scale, Multilingual Open World Dataset for Video Text Spotting](https://github.com/weijiawu/MOVText-Benchmark)
 
