@@ -102,5 +102,12 @@ TransVTSpotter is released under MIT License.
 ## Citing
 
 If you use TranVTSpotter in your research or wish to refer to the baseline results published here, please use the following BibTeX entries:
-
+```
+@article{wu2021opentext,
+  title={A Bilingual, OpenWorld Video Text Dataset and End-to-end Video Text Spotter with Transformer},
+  author={Weijia Wu, Debing Zhang, Yuanqiang Cai, Sibo Wang, Jiahong Li, Zhuang Li, Yejun Tang, Hong Zhou},
+  journal={35th Conference on Neural Information Processing Systems (NeurIPS 2021) Track on Datasets and Benchmarks},
+  year={2021}
+}
+```
 
