@@ -23,7 +23,6 @@ Methods | MOTA | MOTP | IDF1 | Mostly Matched |	Partially Matched |	Mostly Lost
 :---:|:---:|:---:|:---:|:---:|:---:|:---:
 TransVTSpotter | 45.75	|73.58	|57.56	|658	|611	|647
 
-Models are also available in [Baidu Drive](https://pan.baidu.com/s/1dcHuHUZ9y2s7LEmvtVHZZw) by code m4iv.
 
 #### Notes
 - The training time is on 8 NVIDIA V100 GPUs with batchsize 16.
@@ -80,8 +79,11 @@ python3 -m torch.distributed.launch --nproc_per_node=8 --use_env main_track.py  
 
 python3 track_tools/Pretrain_model_to_mot.py
 ```
-The pre-trained model is available [COCOTextV2_pretrain.pth](https://pan.baidu.com/s/1E_srg-Qm8yMgmh6AVlw0Tg)， password:59w8.
+The pre-trained model is available [Baidu Netdisk](https://pan.baidu.com/s/1E_srg-Qm8yMgmh6AVlw0Tg)， password:59w8.
+[Google Netdisk](https://drive.google.com/file/d/1CPqE9D46vlOeO41sWIEXBjAnlbe5hSmG/view?usp=sharing)
+
 And the MOTA 44% can be found [here](https://pan.baidu.com/s/1u3u_P775ReuafRZ4V2amDg) password:xnlw.
+[Google Netdisk](https://drive.google.com/file/d/1HO59jwzL33NYtHlhzKqwq7fYYuf9xCzH/view)
 
 4. Train TransVTSpotter
 ```
