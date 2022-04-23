@@ -57,20 +57,14 @@ pip install -r requirements.txt
 ```
 
 2. Prepare datasets and annotations
-```
-# pretrain COCOTextV2
-python3 track_tools/convert_COCOText_to_coco.py
 
-# ICDAR15
-python3 track_tools/convert_ICDAR15video_to_coco.py
-```
 COCOTextV2 dataset is available in [COCOTextV2](https://bgshih.github.io/cocotext/). 
 ```
-python3 track_tools/convert_crowdhuman_to_coco.py
+python3 track_tools/convert_COCOText_to_coco.py
 ```
 ICDAR2015 dataset is available in [icdar2015](https://rrc.cvc.uab.es/?ch=3&com=downloads).
 ```
-python3 track_tools/convert_mot_to_coco.py
+python3 track_tools/convert_ICDAR15video_to_coco.py
 ```
 
 3. Pre-train on COCOTextV2
