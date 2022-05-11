@@ -13,6 +13,9 @@ Link to our [MOVText: A Large-Scale, Multilingual Open World Dataset for Video T
 
 
 ## Updates
+
+- (11/05/2022) [TransDETR](https://github.com/weijiawu/TransDETR), a better transformer-based video text spotting method has been launched.  
+
 - (08/04/2021) Refactoring the code.  
 
 - (10/20/2021) The complete code has been released . 
