@@ -88,8 +88,12 @@ python3 -m torch.distributed.launch --nproc_per_node=8 --use_env main_track.py  
 ```
 
 
-5. Visualize TransVTSpotter
+5. Inference and Visualize TransVTSpotter
 ```
+# Inference
+python3 main_track.py  --output_dir ./output/ICDAR15 --dataset_file text --coco_path ./Data/ICDAR2015_video --batch_size 1 --resume ./output/ICDAR15/checkpoint.pth --eval --with_box_refine --num_queries 300 --track_thresh 0.3
+
+# Visualize
 python3 track_tools/Evaluation_ICDAR15_video/vis_tracking.py
 ```
 
